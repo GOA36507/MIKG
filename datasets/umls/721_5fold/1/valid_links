@@ -1,0 +1,13 @@
+body_system	body_system
+finding	finding
+bird	bird
+laboratory_procedure	laboratory_procedure
+nucleotide_sequence	nucleotide_sequence
+organism	organism
+organ_or_tissue_function	organ_or_tissue_function
+molecular_sequence	molecular_sequence
+cell_function	cell_function
+nucleic_acid_nucleoside_or_nucleotide	nucleic_acid_nucleoside_or_nucleotide
+diagnostic_procedure	diagnostic_procedure
+body_substance	body_substance
+vitamin	vitamin
