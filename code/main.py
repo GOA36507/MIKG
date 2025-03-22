@@ -17,9 +17,6 @@ from model import MIKG
 from train_funcs import get_model
 import logging
 
-
-g = 1024 * 1024
-# 配置日志
 logging.basicConfig(
     filename='train_log1.log',  # 日志文件名
     level=logging.INFO,        # 日志级别
