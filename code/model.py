@@ -46,10 +46,10 @@ class NCE_Estimator(object):
         return tf.reduce_mean(estimator) * self.weight
 
 class MIKG:
-    def __init__(self, kgs, ent_adj, ent_rel_adj, params,
+    def __init__(self, kgs, ent_adj, ent_rel_adj, args,
                  value_embedding, ent_embedding, attribute_embedding, relation_embedding):
         self.kgs = kgs
-        self.params = params
+        self.args = args
         self.rel_flag = False
         self.ent_num = kgs.entities_num
         self.value_num = kgs.values_num
@@ -69,18 +69,18 @@ class MIKG:
         self.test_entities1 = kgs.test_entities1
         self.test_entities2 = kgs.test_entities2
         self.layer_num = 1
-        self.select_attr_K = params.select_attr_K 
+        self.select_attr_K = args.select_attr_K 
         self.value_attr_concate = kgs.value_attr_concate
-        if params.model == 'Only Attr':
+        if args.model == 'Only Attr':
             self.layer_num = 0
         self.ent_adj = ent_adj
         self.ent_rel_adj = ent_rel_adj
         self.activation = tf.nn.leaky_relu
         self.layers = list()
         self.output = list()
-        self.dim = params.dim 
+        self.dim = args.dim 
         self.input_value = value_embedding
-        if params.model == 'Only Rel':
+        if args.model == 'Only Rel':
             self.input_value = None  
         else:
             self.value_placeholder = tf.placeholder(dtype=tf.float32, shape=[self.value_num + 1, 768])
@@ -91,9 +91,9 @@ class MIKG:
         config.gpu_options.allow_growth = True
         config.allow_soft_placement = True
         self.session = tf.Session(config=config)
-        self.lr = self.params.learning_rate
+        self.lr = self.args.learning_rate
         self.generate_variables()
-        if params.model != 'Only Rel':
+        if args.model != 'Only Rel':
             self.generate_value_entity_embeddings()
         self.build_training_graph()
         tf.global_variables_initializer().run(session=self.session)
@@ -102,7 +102,7 @@ class MIKG:
                              {self.value_placeholder: self.input_value})
 
     def generate_variables(self):
-        self.ent_padding = tf.constant(0, dtype=tf.float32, shape=(1, self.params.dim))
+        self.ent_padding = tf.constant(0, dtype=tf.float32, shape=(1, self.args.dim))
         if self.input_value is not None:
             self.rel_flag = True
             self.no_attr = embed_init(1, 768, "no_see_attr", method='glorot_uniform_initializer')
@@ -121,28 +121,28 @@ class MIKG:
             with tf.variable_scope("temp_rel_map"):
                 self.temp_rel_map = tf.get_variable('rel_map',
                                                     dtype=tf.float32,
-                                                    shape=[768, self.params.dim],
+                                                    shape=[768, self.args.dim],
                                                     initializer=tf.initializers.glorot_normal(dtype=tf.float32))
         else:
             # 不使用属性拼接时，直接初始化实体 + 数值嵌入
             with tf.variable_scope("ent_embeddings"):
                 self.ent_embeddings = tf.get_variable('ent_embedding',
                                                     dtype=tf.float32,
-                                                    shape=[self.ent_num, self.params.dim],
+                                                    shape=[self.ent_num, self.args.dim],
                                                     initializer=tf.initializers.glorot_normal(dtype=tf.float32))
             with tf.variable_scope("value_embeddings"):
-                temp_value_embeddings = embed_init(self.value_num, self.params.dim, "value_none_zero",
+                temp_value_embeddings = embed_init(self.value_num, self.args.dim, "value_none_zero",
                                                 method='glorot_uniform_initializer')
-                zero_embeddings = tf.constant(0, dtype=tf.float32, shape=(1, self.params.dim))
+                zero_embeddings = tf.constant(0, dtype=tf.float32, shape=(1, self.args.dim))
                 temp_value_embeddings = tf.nn.l2_normalize(temp_value_embeddings, axis=1)
                 self.init_value_embeddings = tf.concat((temp_value_embeddings, zero_embeddings), axis=0)
             with tf.variable_scope("relation_embeddings"):
                 self.rel_embeddings = tf.get_variable('rel_embedding',
                                                     dtype=tf.float32,
-                                                    shape=[self.rel_num, self.params.dim],
+                                                    shape=[self.rel_num, self.args.dim],
                                                     initializer=tf.initializers.glorot_normal(dtype=tf.float32))
                 self.rel_embeddings = tf.nn.l2_normalize(self.rel_embeddings, axis=1)
-                zero_embeddings = tf.constant(0, dtype=tf.float32, shape=(1, self.params.dim))
+                zero_embeddings = tf.constant(0, dtype=tf.float32, shape=(1, self.args.dim))
                 self.rel_embeddings = tf.concat((self.rel_embeddings, zero_embeddings), axis=0)
 
 
@@ -153,7 +153,7 @@ class MIKG:
         concate_embeddings = tf.nn.embedding_lookup(attr_embeddings, self.value_attr_concate)
         concate_embeddings = tf.concat((concate_embeddings, self.no_attr), axis=0)
         concat = tf.concat((concate_embeddings, self.init_value_embeddings), axis=1)
-        dense_layer = tf.keras.layers.Dense(self.params.dim, use_bias=False)
+        dense_layer = tf.keras.layers.Dense(self.args.dim, use_bias=False)
         self.value_embeddings = tf.nn.l2_normalize(dense_layer(concat), axis=1)
         self.first_value_list = [val[0] for val in self.value_list]
         self.other_value_list = [val[1:self.select_attr_K] for val in self.value_list]
@@ -164,7 +164,7 @@ class MIKG:
         value_embeddings = value_embeddings * value_mask_exp  
         ent_tile = tf.tile(tf.expand_dims(self.first_value_embeding, 1), [1, self.select_attr_K-1, 1])
         fused = value_embeddings + ent_tile  
-        fused_flat = tf.reshape(fused, [-1, self.params.dim])
+        fused_flat = tf.reshape(fused, [-1, self.args.dim])
         hidden = tf.keras.layers.Dense(128, activation='relu')(fused_flat)
         logits = tf.keras.layers.Dense(1)(hidden)
         logits = tf.reshape(logits, [self.ent_num, self.select_attr_K-1])
@@ -191,15 +191,15 @@ class MIKG:
         self.output.append(output_embeddings)
         self.rel_output.append(rel_embeddings)
         if not evaluation:
-            output_embeddings = tf.nn.dropout(output_embeddings, rate=self.params.input_drop_rate)
+            output_embeddings = tf.nn.dropout(output_embeddings, rate=self.args.input_drop_rate)
         for i in range(self.layer_num):
             if not evaluation:
                 activation = None
                 if i == self.layer_num - 1:
                     activation = None
-                rgat_layer = RGATLayer(self.params.dim, self.params.dim, self.params.dim, self.params.dim,
-                                       self.ent_rel_adj, self.ent_adj, self.params.drop_rate, i, self.ent_num,
-                                       self.params.neighbor_num, activation)
+                rgat_layer = RGATLayer(self.args.dim, self.args.dim, self.args.dim, self.args.dim,
+                                       self.ent_rel_adj, self.ent_adj, self.args.drop_rate, i, self.ent_num,
+                                       self.args.neighbor_num, activation)
                 self.layers.append(rgat_layer)
             else:
                 rgat_layer = self.layers[i]
@@ -218,23 +218,23 @@ class MIKG:
         self.input_entities2 = tf.placeholder(tf.int32, shape=[None])
         self.ce_label = tf.placeholder(tf.float32, shape=[None, None])
         self.mi_label = tf.placeholder(tf.int32, shape=[None])
-        if self.params.model != 'Only Rel':
+        if self.args.model != 'Only Rel':
             self.generate_value_entity_embeddings()
         self.ent_embeddings = tf.concat((self.ent_embeddings, self.ent_padding), axis=0)
         if self.rel_flag:
             self.rel_embeddings = tf.matmul(self.rel_embeddings, self.temp_rel_map)
             self.rel_embeddings = tf.nn.l2_normalize(self.rel_embeddings, axis=1)
-        self.attr_embed = tf.nn.l2_normalize(self.ent_embeddings, axis=1)
+        self.attr_entiiy_embed = tf.nn.l2_normalize(self.ent_embeddings, axis=1)
         self.rgat_graph_convolution()
-        self.rel_embed = self.output[-1]
+        self.rel_entiiy_embed = self.output[-1]
         # MI Estimator
-        self.nce_estimator = NCE_Estimator(temperature=self.params.mi_t,weight=self.params.mi_w)
-        input_embeds_att = tf.nn.embedding_lookup(self.attr_embed, self.input_entities1)
-        input_embeds_rel = tf.nn.embedding_lookup(self.rel_embed, self.input_entities1)
-        self.loss +=  self.nce_estimator.forward(input_embeds_att, self.attr_embed, self.mi_label) 
-        self.loss +=  self.nce_estimator.forward(input_embeds_rel, self.rel_embed, self.mi_label) 
+        self.nce_estimator = NCE_Estimator(temperature=self.args.mi_t,weight=self.args.mi_w)
+        input_embeds_att = tf.nn.embedding_lookup(self.attr_entiiy_embed, self.input_entities1)
+        input_embeds_rel = tf.nn.embedding_lookup(self.rel_entiiy_embed, self.input_entities1)
+        self.loss +=  self.nce_estimator.forward(input_embeds_att, self.attr_entiiy_embed, self.mi_label) 
+        self.loss +=  self.nce_estimator.forward(input_embeds_rel, self.rel_entiiy_embed, self.mi_label) 
         # Basic CE Loss
-        all_ent_embeddings = tf.concat([self.attr_embed, self.rel_embed], axis=1)
+        all_ent_embeddings = tf.concat([self.attr_entiiy_embed, self.rel_entiiy_embed], axis=1)
         all_ent_embeddings = tf.nn.l2_normalize(all_ent_embeddings, axis=1)
         input_embeds = tf.nn.embedding_lookup(all_ent_embeddings, self.input_entities1)
         self.loss += self.ce_loss(input_embeds, self.ce_label, all_ent_embeddings)
@@ -250,18 +250,18 @@ class MIKG:
         loss = tf.reduce_mean(loss)
         return loss
     
-    def train(self, iteration, num_epochs, params, kgs):
+    def train(self, iteration, num_epochs, args, kgs):
 
         total_time = 0.0
         for epoch in range(num_epochs):
-            steps = math.ceil(len(kgs.train_links) / params.batch_size)
+            steps = math.ceil(len(kgs.train_links) / args.batch_size)
             batch_size = math.ceil(len(self.train_entities1) / steps)
             for step in range(steps):
                 links = random.sample(self.sup_links, batch_size)
                 mi_label = [link[1] for link in links]
-                ce_label = (params.neg_pro / kgs.entities_num) * np.ones((batch_size, kgs.entities_num + 1))
+                ce_label = (args.neg_pro / kgs.entities_num) * np.ones((batch_size, kgs.entities_num + 1))
                 for i, link in enumerate(links):
-                    ce_label[i][link[1]] += (1 - params.neg_pro)
+                    ce_label[i][link[1]] += (1 - args.neg_pro)
                     ce_label[i][-1] = 0
                 entities1 = [p[0] for p in links]
                 entities2 = [p[1] for p in links]
@@ -302,15 +302,15 @@ class MIKG:
         test_embeds2 = tf.nn.l2_normalize(test_embeds2, axis=1)
         test_embeds1 = test_embeds1.eval(session=self.session)
         test_embeds2 = test_embeds2.eval(session=self.session)
-        alignment_rest, hits1, mr_12, mrr_12, hits5= greedy_alignment(test_embeds1,
+        alignment_rest, hits1, mr, mrr, hits5= greedy_alignment(test_embeds1,
                                                                 test_embeds2,
-                                                                self.params.ent_top_k,
-                                                                self.params.nums_threads,
+                                                                self.args.ent_top_k,
+                                                                self.args.nums_threads,
                                                                 'inner', False, 0, True)
         print("test totally costs {:.1f} s ".format(time.time() - ti))
         del test_embeds1, test_embeds2
         gc.collect()
-        return  mrr_12, hits1, hits5
+        return  mrr, hits1, hits5
 
     def valid(self):
         ti = time.time()
@@ -329,15 +329,15 @@ class MIKG:
         valid_embeds2 = tf.nn.l2_normalize(valid_embeds2, axis=1)
         valid_embeds1 = valid_embeds1.eval(session=self.session)
         valid_embeds2 = valid_embeds2.eval(session=self.session)
-        alignment_rest, hits1, mr_12, mrr_12, hits5 = greedy_alignment(valid_embeds1,
+        alignment_rest, hits1, mr, mrr, hits5 = greedy_alignment(valid_embeds1,
                                                                 valid_embeds2,
-                                                                self.params.ent_top_k,
-                                                                self.params.nums_threads,
+                                                                self.args.ent_top_k,
+                                                                self.args.nums_threads,
                                                                 'inner', False, 0, True)
         print("validation costs {:.1f} s ".format(time.time() - ti))
         del valid_embeds1, valid_embeds2
         gc.collect()
-        return   mrr_12
+        return   mrr
 
     def save(self):
         self.rgat_graph_convolution(evaluation=True)
@@ -352,6 +352,6 @@ class MIKG:
         first_embeds = tf.nn.l2_normalize(first_embeds, axis=1)
         first_embeds = first_embeds.eval(session=self.session)
         embeds = embeds.eval(session=self.session)
-        dataset_name = self.params.input.split("/")[-2]
+        dataset_name = self.args.input.split("/")[-2]
         name = "../"+dataset_name+"_"+str(self.layer_num)+".npy"
         np.save(name, embeds)
