@@ -226,8 +226,7 @@ class MIKG:
             self.rel_embeddings = tf.nn.l2_normalize(self.rel_embeddings, axis=1)
         self.attr_embed = tf.nn.l2_normalize(self.ent_embeddings, axis=1)
         self.rgat_graph_convolution()
-        embed_list = [tf.nn.l2_normalize(e, axis=1) for e in self.output]
-        self.rel_embed = embed_list[-1]
+        self.rel_embed = self.output[-1]
         # MI Estimator
         self.nce_estimator = NCE_Estimator(temperature=self.params.mi_t,weight=self.params.mi_w)
         input_embeds_att = tf.nn.embedding_lookup(self.attr_embed, self.input_entities1)
