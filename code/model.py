@@ -49,9 +49,10 @@ class NCE_Estimator(object):
         return tf.reduce_mean(estimator) * self.weight
 
 class MIKG:
-    def __init__(self, kgs, adj, attr_adj, ent_adj, ent_rel_adj, params,
+    def __init__(self, kgs, ent_adj, ent_rel_adj, params,
                  value_embedding, ent_embedding, attribute_embedding, relation_embedding):
         self.kgs = kgs
+        self.params = params
         self.rel_flag = False
         self.ent_num = kgs.entities_num
         self.value_num = kgs.values_num
@@ -65,30 +66,21 @@ class MIKG:
         self.ref_links = kgs.test_links
         self.valid_links = kgs.valid_links
         self.attr_value_list = kgs.kg1.attr_value_list + kgs.kg2.attr_value_list
-        self.select_attr_K = params.select_attr_K - 1
-        self.attr_value_list = self.attr_value_list[0:params.self.select_attr_K]
-        self.ent_init_list = kgs.ent_init_list
+        self.value_list = kgs.value_list
         self.train_entities1 = kgs.train_entities1
         self.train_entities2 = kgs.train_entities2
         self.valid_entities1 = kgs.valid_entities1
         self.valid_entities2 = kgs.valid_entities2
         self.test_entities1 = kgs.test_entities1
         self.test_entities2 = kgs.test_entities2
-
-        self.attr_value_conv = kgs.attr_value
+        self.layer_num = 1
+        self.select_attr_K = params.select_attr_K 
         self.value_attr_concate = kgs.value_attr_concate
 
-        self.params = params
-        self.layer_num = 1
-        if params.model == 'Only attr':
+        if params.model == 'Only Attr':
             self.layer_num = 0
-        self.adj_mat = tf.SparseTensor(indices=adj[0], values=adj[1], dense_shape=adj[2])
-        self.adj_mat = tf.to_float(self.adj_mat, name="adj_mat")
         self.ent_adj = ent_adj
         self.ent_rel_adj = ent_rel_adj
-        if attr_adj is not None:
-            self.attr_adj = tf.SparseTensor(indices=attr_adj[0], values=attr_adj[1], dense_shape=attr_adj[2])
-            self.attr_adj = tf.to_float(self.attr_adj, name="attr_adj")
         self.activation = tf.nn.leaky_relu
         self.layers = list()
         self.output = list()
@@ -101,7 +93,6 @@ class MIKG:
         else:
             self.value_placeholder = tf.placeholder(dtype=tf.float32, shape=[self.value_num + 1, 768])
         self.ent_embeddings = ent_embedding
-        self.temp_ent_embeddings = ent_embedding
         self.temp_attribute_embeddings = attribute_embedding
         self.temp_relation_embeddings = relation_embedding
 
@@ -121,7 +112,6 @@ class MIKG:
                              {self.value_placeholder: self.input_value})
 
     def generate_variables(self):
-        # 用于补齐实体嵌入（测试时拼 padding）
         self.ent_padding = tf.constant(0, dtype=tf.float32, shape=(1, self.params.dim))
 
         if self.input_value is not None:
@@ -145,12 +135,6 @@ class MIKG:
             with tf.variable_scope("temp_attribute_embeddings"):
                 self.temp_attribute_embeddings = tf.Variable(self.temp_attribute_embeddings,
                                                             trainable=True, dtype=tf.float32)
-
-            with tf.variable_scope("temp_attr_map"):
-                self.temp_attr_map = tf.get_variable('attr_map',
-                                                    dtype=tf.float32,
-                                                    shape=[768, self.params.attr_dim],
-                                                    initializer=tf.initializers.glorot_normal(dtype=tf.float32))
 
             with tf.variable_scope("temp_rel_map"):
                 self.temp_rel_map = tf.get_variable('rel_map',
@@ -181,55 +165,9 @@ class MIKG:
                 zero_embeddings = tf.constant(0, dtype=tf.float32, shape=(1, self.params.dim))
                 self.rel_embeddings = tf.concat((self.rel_embeddings, zero_embeddings), axis=0)
 
-        # 通用变量（无论哪种模式都用到）
-        with tf.variable_scope("embeddings"):
-            self.matrix = tf.get_variable('matrix',
-                                                dtype=tf.float32,
-                                                shape=[self.params.dim, self.params.dim],
-                                                initializer=tf.initializers.glorot_normal(dtype=tf.float32))
-
-        with tf.variable_scope("attention_matrix"):
-            self.attention_matrix = tf.get_variable('attention_matrix',
-                                                    dtype=tf.float32,
-                                                    shape=[self.params.dim, self.params.dim],
-                                                    initializer=tf.initializers.glorot_normal(dtype=tf.float32))
-
-        with tf.variable_scope("gated"):
-            self.gated = tf.get_variable('gated_matrix',
-                                                dtype=tf.float32,
-                                                shape=[self.params.dim, self.params.dim],
-                                                initializer=tf.initializers.glorot_normal(dtype=tf.float32))
-
-        with tf.variable_scope("struct"):
-            self.struct = tf.get_variable('gated_matrix',
-                                                dtype=tf.float32,
-                                                shape=[self.params.dim + 30, self.params.dim],
-                                                initializer=tf.initializers.glorot_normal(dtype=tf.float32))
-            self.struct = tf.nn.l2_normalize(self.struct, axis=1)
-    def sorted_attritude_value(self):
-            self.sorted_value_list = list()
-            self.ent_init_list = list()
-
-            for i in range(self.ent_num):
-                val = [self.value_num]
-                if i in self.kgs.kg1.ent_attr_value_dict.keys():
-                    val = list(self.kgs.kg1.ent_attr_value_dict[i])
-                elif i in self.kgs.kg2.ent_attr_value_dict.keys():
-                    val = list(self.kgs.kg2.ent_attr_value_dict[i])
-
-                sort_val = sorted(val)
-                self.ent_init_list.append(sort_val[0])
-                if len(val) > self.select_attr_K:
-                    val = sort_val[1:self.select_attr_K+1]
-                else:
-                    temp_val = [self.value_num] * (self.select_attr_K+1 - len(val))
-                    val = sort_val[1:] + temp_val
-
-                self.sorted_value_list.append(val)
 
     def generate_value_entity_embeddings(self):
         """合并属性和属性值嵌入加权融合为一个函数"""
-
 
         attr_embeddings = self.temp_attribute_embeddings
         concate_embeddings = tf.nn.embedding_lookup(attr_embeddings, self.value_attr_concate)
@@ -239,32 +177,34 @@ class MIKG:
         dense_layer = tf.keras.layers.Dense(self.params.dim, use_bias=False)
         self.value_embeddings = tf.nn.l2_normalize(dense_layer(concat), axis=1)
 
+        self.first_value_list = [val[0] for val in self.value_list]
+        self.other_value_list = [val[1:self.select_attr_K] for val in self.value_list]
 
-        self.ent_embeddings = tf.nn.embedding_lookup(self.value_embeddings, self.ent_init_list)
+        self.first_value_embeding = tf.nn.embedding_lookup(self.value_embeddings, self.first_value_list)
 
 
-        value_embeddings = tf.nn.embedding_lookup(self.value_embeddings, self.sorted_value_list)
-        value_mask = tf.cast(tf.not_equal(self.sorted_value_list, self.value_num), tf.float32)
+        value_embeddings = tf.nn.embedding_lookup(self.value_embeddings, self.other_value_list)
+        value_mask = tf.cast(tf.not_equal(self.other_value_list, self.value_num), tf.float32)
         value_mask_exp = tf.expand_dims(value_mask, axis=-1)
-        value_embeddings = value_embeddings * value_mask_exp  # [ent_num, select_attr_K, dim]
+        value_embeddings = value_embeddings * value_mask_exp  
 
     
-        ent_tile = tf.tile(tf.expand_dims(self.ent_embeddings, 1), [1, self.select_attr_K, 1])
-        fused = value_embeddings + ent_tile  # [ent_num, select_attr_K, dim]
+        ent_tile = tf.tile(tf.expand_dims(self.first_value_embeding, 1), [1, self.select_attr_K-1, 1])
+        fused = value_embeddings + ent_tile  
 
         fused_flat = tf.reshape(fused, [-1, self.params.dim])
         hidden = tf.keras.layers.Dense(128, activation='relu')(fused_flat)
         logits = tf.keras.layers.Dense(1)(hidden)
-        logits = tf.reshape(logits, [self.ent_num, self.select_attr_K])
+        logits = tf.reshape(logits, [self.ent_num, self.select_attr_K-1])
 
 
         logits_masked = tf.where(value_mask > 0, logits, tf.fill(tf.shape(logits), -1e15))
-        attention = tf.nn.softmax(logits_masked, axis=1)  # [ent_num, select_attr_K]
-        attention = tf.expand_dims(attention, axis=-1)    # [ent_num, select_attr_K, 1]
+        attention = tf.nn.softmax(logits_masked, axis=1)  
+        attention = tf.expand_dims(attention, axis=-1)    
 
 
-        weighted_sum = tf.reduce_sum(attention * value_embeddings, axis=1)  # [ent_num, dim]
-        self.ent_embeddings = weighted_sum + self.ent_embeddings
+        weighted_sum_embeddings= tf.reduce_sum(attention * value_embeddings, axis=1) 
+        self.ent_embedings = weighted_sum_embeddings + self.first_value_embeding
 
 
         with tf.control_dependencies([
@@ -349,7 +289,7 @@ class MIKG:
         self.loss += self.ce_loss(input_embeds, self.ce_label, all_ent_embeddings)
 
         # Optimizer
-        opt = tf.train.AdamOptimizer(self.params.learning_rate)
+        opt = tf.train.AdamOptimizer(self.lr)
         self.optimizer = opt.minimize(self.loss)
 
 
